@@ -44,7 +44,7 @@ public struct NetworkInputData : INetworkInput
 | --- | --- | --- |
 | ホストが同じ結果を再現するのに必要な操作か | ホストはクライアントの `Update()` や `Input` を参照できず、渡されたデータだけで Tick を進める。 | WASD の方向、マウスボタンの押下。 |
 | 状態（結果）ではなく操作（原因）であるか | 位置や発射済みかどうかは、ホストが入力から計算して確定する。クライアントが結果を送ると不正も同期ずれも起きる。 | 座標ではなく `Direction` を送る。 |
-| 小さな値型で表現できるか | 毎 Tick 送信されるため、帯域を節約する。参照型・`string`・`GameObject` は入れられない。 | `Vector3` と `NetworkButtons`。 |
+| 小さく固定長のデータで表現できるか | 毎 Tick 送信されるため、帯域を節約する。Fusion が入力としてシリアライズ可能な型だけを使う。 | `Vector3` と `NetworkButtons`。 |
 | 1 Tick の間に失われてはならないか | `OnInput()` が呼ばれる間隔より短い操作も取りこぼしたくない。 | クリックは `Update()` で蓄積し、`OnInput()` で消費する。 |
 
 たとえば「ジャンプ」を追加する場合は `Buttons` に `Jump = 3` のようなビットを足します。「画面座標のクリック位置」などホスト側で必要になる情報は、`Vector3` として追加します。一方、体力やスコアなど、ゲームの結果として決まる値は入力に入れません。それらは `[Networked]` プロパティで管理します。
@@ -84,7 +84,7 @@ sequenceDiagram
 	C->>C: Tick N に巻き戻し、履歴の Tick N+1〜現在を再度 GetInput() して再シミュレーション
 ```
 
-ホストが Tick N に到達した時にまだ入力が届いていなければ、`OnInputMissing()` が呼ばれます。本プロジェクトでは空実装なので、既定の扱い（直前の入力の再利用など）に任せることになります。
+ホストが Tick N に到達した時に入力が不足していれば、`OnInputMissing()` が呼ばれます。本プロジェクトでは空実装で代替入力を設定していないため、入力欠落時の実際の挙動は Fusion の設定と実行時の状況を確認する必要があります。
 
 ## 2. Ball（キネマティックな発射物）
 
@@ -132,8 +132,8 @@ public class Ball : NetworkBehaviour
 | ピア | 座標の更新 |
 | --- | --- |
 | ホスト | Tick ごとに `FixedUpdateNetwork()` が `transform.position` を更新し、`NetworkTransform` がその値を状態として保存する。確定した値がスナップショットで配信される。 |
-| 発射したクライアント（`InputAuthority`） | 既定の設定では、`FixedUpdateNetwork()` が先行 Tick で実行されて予測移動する。スナップショットを受信すると、その Tick へ戻して再計算する。 |
-| 他のクライアント | 入力を持たないため予測せず、ホストの状態を補間して `Render()` で表示する。ホストより少し遅れた映像になる。 |
+| 発射したクライアント | 発射物の**スポーン自体**は予測されない。ホストから生成通知を受信した後、確定スナップショットを基準に表示・シミュレーションする。予測の有無は `InputAuthority` ではなく、Fusion のシミュレーション設定とオブジェクトの状態で決まる。 |
+| 他のクライアント | 入力を持たないため、ホストの確定状態を基準に表示する。`NetworkTransform` の補間により、ホストより少し遅れた映像になる。 |
 
 ```mermaid
 sequenceDiagram
@@ -148,11 +148,11 @@ sequenceDiagram
 	loop 毎 Tick
 		H->>H: FixedUpdateNetwork(): position += Speed * forward * DeltaTime
 		H->>H: NetworkTransform が position を状態へ保存
-		C->>C: 先行 Tick で同じ計算を実行して予測
+		C->>C: 受信済みの生成・状態を基準に表示／必要に応じてシミュレーション
 	end
 
 	H-->>C: 確定スナップショット（position、_life）
-	C->>C: 予測値と比較し、差があれば確定値を起点に再計算
+	C->>C: 確定状態で補正し、ローカルで先行した状態があれば再シミュレーション
 	H-->>O: 確定スナップショット（position、_life）
 	O->>O: 受信した 2 つの状態を補間して表示
 
@@ -161,13 +161,13 @@ sequenceDiagram
 	H-->>O: 削除を配信
 ```
 
-計算式が単純で状態が `position` と `_life` だけなので、予測が外れる要素がほとんどありません。そのため、キネマティックな移動は再シミュレーションの負荷が小さく、ずれも起きにくい方式です。
+移動は入力や物理衝突に依存しない単純な式で計算されるため、キネマティックな移動は物理演算を伴う方式より再シミュレーションの負荷が小さく、ずれも起きにくい方式です。
 
 ## 3. PhysxBall（物理演算する発射物）
 
 ### 3.1 プレハブの構成
 
-`PhysxBall` プレハブは `NetworkObject`、`NetworkRigidbody3D`、`Rigidbody`、`SphereCollider`、`PhysxBall` で構成されます。チュートリアルの方針に従い、`NetworkTransform` の代わりに `NetworkRigidbody3D` を使い、見た目の `Sphere` を子オブジェクトにして `InterpolationTarget` に設定します。`Rigidbody` と `Collider` は、`NetworkRigidbody` と同じ親オブジェクトに置く必要があります。
+`PhysxBall` プレハブは `NetworkObject`、`NetworkRigidbody`、`Rigidbody`、`SphereCollider`、`PhysxBall` で構成されます。現在のプロジェクトでは Physics アドオンのコンポーネント名は `NetworkRigidbody` です（チュートリアルでは `NetworkRigidbody3D` と表記されています）。`NetworkTransform` の代わりにこのコンポーネントを使い、見た目の `Sphere` を子オブジェクトにして `InterpolationTarget` に設定しています。`Rigidbody` と `Collider` は、`NetworkRigidbody` と同じ親オブジェクトに置かれています。
 
 ### 3.2 スクリプトの役割
 
@@ -200,7 +200,7 @@ public class PhysxBall : NetworkBehaviour
 }
 ```
 
-`Ball` と異なり、`FixedUpdateNetwork()` に移動処理はありません。コードが担当するのは、**初速の設定（`Init()`）と寿命管理だけ**です。移動と衝突は PhysX が行い、同期は `NetworkRigidbody3D` が担当します。
+`Ball` と異なり、`FixedUpdateNetwork()` に移動処理はありません。コードが担当するのは、**初速の設定（`Init()`）と寿命管理だけ**です。移動と衝突は PhysX が行い、同期は `NetworkRigidbody` が担当します。
 
 `Player` 側では、右クリック時に `Init(BallSpeed * _forward)` を呼んでいます。`_forward` はプレイヤーが最後に向いた方向、`BallSpeed` は 10 です。
 
@@ -212,7 +212,7 @@ public class PhysxBall : NetworkBehaviour
 | --- | --- |
 | 更新される場所 | Unity 標準の物理更新ではなく、Physics アドオンが Fusion の Tick ごとに物理シミュレーションを進める。この呼び出しが、プレイヤーアバターの移動と同じ時間軸で行われることが重要。 |
 | 初速の設定 | ホストが `Spawn` のコールバックで `Init()` を実行し、`Rigidbody` の速度を設定する。 |
-| 同期されるもの | `NetworkRigidbody3D` が、位置、回転、速度、角速度などの `Rigidbody` の状態をネットワーク状態として保存する。 |
+| 同期されるもの | `NetworkRigidbody` が `Rigidbody` に関係するネットワーク状態を管理する。同期対象の詳細は Physics アドオンのバージョンとコンポーネント設定に従う。 |
 | ホスト | 物理演算を実行して結果を確定し、スナップショットで配信する。 |
 | クライアント | 既定では、ホストの状態に従う。Physics アドオンを使う場合は、ローカルでも物理を予測して、プレイヤーアバターとの衝突などを同じ時間軸で扱える。 |
 | 表示 | `InterpolationTarget` に設定した子オブジェクトが、2 つのスナップショットの間を補間して滑らかに表示される。 |
@@ -227,7 +227,7 @@ sequenceDiagram
 
 	loop 毎 Tick
 		H->>H: Physics アドオンが物理を 1 Tick 進める（移動・衝突）
-		H->>H: NetworkRigidbody3D が Rigidbody の状態を保存
+		H->>H: NetworkRigidbody が Rigidbody 関連の状態を管理
 		C->>C: 物理を予測して進める（Physics アドオン使用時）
 	end
 
@@ -245,7 +245,7 @@ sequenceDiagram
 
 | 項目 | `Ball` | `PhysxBall` |
 | --- | --- | --- |
-| 同期コンポーネント | `NetworkTransform` | `NetworkRigidbody3D` |
+| 同期コンポーネント | `NetworkTransform` | `NetworkRigidbody` |
 | 移動の計算 | `FixedUpdateNetwork()` で式を直接計算 | PhysX が計算 |
 | コードの役割 | 移動、寿命管理 | 初速設定、寿命管理 |
 | 衝突 | 行わない | PhysX が行う |
