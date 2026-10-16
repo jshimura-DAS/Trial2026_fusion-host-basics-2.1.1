@@ -140,7 +140,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.netcode": {
-      "version": "1.14.2",
+      "version": "1.14.3",
       "depth": 0,
       "source": "registry",
       "dependencies": {
@@ -285,7 +285,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.services.multiplayer": {
-      "version": "2.3.2",
+      "version": "2.3.3",
       "depth": 0,
       "source": "registry",
       "dependencies": {
@@ -315,7 +315,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.services.vivox": {
-      "version": "16.12.0",
+      "version": "16.12.1",
       "depth": 0,
       "source": "registry",
       "dependencies": {
