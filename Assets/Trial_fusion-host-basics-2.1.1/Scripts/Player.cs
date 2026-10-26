@@ -1,5 +1,7 @@
 using Fusion;
+using TMPro;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class Player : NetworkBehaviour
 {
@@ -22,10 +24,14 @@ public class Player : NetworkBehaviour
     [Networked]
     private TickTimer _delay { get; set; }
 
+    private TMP_Text _messages;
+
+
     private void Awake()
     {
         _cc = GetComponent<NetworkCharacterController>();
         _material = GetComponentInChildren<MeshRenderer>().material;
+        _messages = FindFirstObjectByType<TMP_Text>();
     }
     public override void Spawned()
     {
@@ -43,6 +49,16 @@ public class Player : NetworkBehaviour
             }
         }
         _material.color = Color.Lerp(_material.color, Color.blue, Time.deltaTime);
+    }
+    public void Update()
+    {
+        if (Object.HasInputAuthority )
+        {
+            if(Keyboard.current?.rKey.isPressed ?? false)
+            {
+                RPC_SendMessage("Hey Mate!");
+            }
+        }
     }
 
     public override void FixedUpdateNetwork()
@@ -83,5 +99,29 @@ public class Player : NetworkBehaviour
                 }
             }
         }
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority, HostMode = RpcHostMode.SourceIsHostPlayer)]
+    public void RPC_SendMessage(string message, RpcInfo info = default)
+    {
+        RPC_RelayMessage(message, info.Source);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All, HostMode = RpcHostMode.SourceIsServer)]
+    public void RPC_RelayMessage(string message, PlayerRef messageSource)
+    {
+        if (_messages == null)
+            _messages = UnityEngine.Object.FindFirstObjectByType<TMP_Text>();
+
+        if (messageSource == Runner.LocalPlayer)
+        {
+            message = $"You said: {message}\n";
+        }
+        else
+        {
+            message = $"Some other player said: {message}\n";
+        }
+
+        _messages.text += message;
     }
 }
