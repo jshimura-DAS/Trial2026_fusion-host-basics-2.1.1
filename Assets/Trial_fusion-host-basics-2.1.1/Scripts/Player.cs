@@ -20,6 +20,7 @@ public class Player : NetworkBehaviour
 
     private NetworkCharacterController _cc;
     private Vector3 _forward = Vector3.forward;
+    private float _shootElapsed;
 
     [Networked]
     private TickTimer _delay { get; set; }
@@ -27,15 +28,31 @@ public class Player : NetworkBehaviour
     private TMP_Text _messages;
 
 
+    [SerializeField]
+    public Color _initialColor;
+
+    [SerializeField]
+    private Color[] _colors = new Color[] { Color.red, Color.green, Color.blue, Color.cyan, Color.magenta };
+
+    [SerializeField]            
+    // パラメータ調整
+    float _frequency = 64.0f; // 点滅の速さ（振動数）
+    [SerializeField] 
+    float _decayRate = 4.0f;  // 収束の速さ（大きいほど早く元の色に戻る）
+
+
     private void Awake()
     {
         _cc = GetComponent<NetworkCharacterController>();
         _material = GetComponentInChildren<MeshRenderer>().material;
         _messages = FindFirstObjectByType<TMP_Text>();
+        _initialColor = _material.color;
     }
     public override void Spawned()
     {
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        _initialColor = _colors[Runner.LocalPlayer.PlayerId % _colors.Length] ;
+        _material.color = _initialColor;
     }
     public override void Render()
     {
@@ -44,11 +61,22 @@ public class Player : NetworkBehaviour
             switch (change)
             {
                 case nameof(SpawnedProjectile):
-                    _material.color = Color.white;
+                    _material.color = Color.yellow;
+                    _shootElapsed = 0f;
                     break;
             }
         }
-        _material.color = Color.Lerp(_material.color, Color.blue, Time.deltaTime);
+        _shootElapsed += Time.deltaTime;
+
+
+        // Sin波（-1 〜 1）に減衰率を掛ける
+        float envelope = Mathf.Exp(-_shootElapsed * _decayRate); // 1.0 から 0.0 へ徐々に減少
+        float sinWave = Mathf.Sin(_shootElapsed * _frequency);   // -1.0 〜 1.0 の振動
+
+        // _initialColor（元の色）を基準に、黄色（Yellow）へ向かって振れて最終的に0（元の色）に収束する
+        float t = Mathf.Clamp01(sinWave * envelope);
+
+        _material.color = Color.Lerp(_initialColor, Color.yellow, t);
     }
     public void Update()
     {
