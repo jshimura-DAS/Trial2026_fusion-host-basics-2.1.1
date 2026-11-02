@@ -51,7 +51,7 @@ public class Player : NetworkBehaviour
     public override void Spawned()
     {
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
-        _initialColor = _colors[Runner.LocalPlayer.PlayerId % _colors.Length] ;
+        _initialColor = _colors[Object.InputAuthority.RawEncoded % _colors.Length] ;
         _material.color = _initialColor;
     }
     public override void Render()
@@ -82,7 +82,7 @@ public class Player : NetworkBehaviour
     {
         if (Object.HasInputAuthority )
         {
-            if(Keyboard.current?.rKey.isPressed ?? false)
+            if(Keyboard.current?.rKey.wasPressedThisFrame ?? false)
             {
                 RPC_SendMessage("Hey Mate!");
             }
