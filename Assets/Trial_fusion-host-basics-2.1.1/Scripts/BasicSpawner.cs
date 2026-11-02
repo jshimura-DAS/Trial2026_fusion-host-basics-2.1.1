@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Fusion;
 using Fusion.Sockets;
+using Fusion.Addons.Physics;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -25,6 +26,11 @@ public class BasicSpawner : MonoBehaviour, INetworkRunnerCallbacks
         // Create the Fusion runner and let it know that we will be providing user input
         _runner = gameObject.AddComponent<NetworkRunner>();
         _runner.ProvideInput = true;
+
+        gameObject.AddComponent<RunnerSimulatePhysics>();
+
+        //var runnerSimulatePhysics3D = gameObject.AddComponent<RunnerSimulatePhysics3D>();
+        //runnerSimulatePhysics3D.ClientPhysicsSimulation = ClientPhysicsSimulation.SimulateAlways;
 
         // Create the NetworkSceneInfo from the current scene
         var scene = SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex);
